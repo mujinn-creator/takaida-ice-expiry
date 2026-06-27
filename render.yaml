@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: takaida-ice-expiry
+    env: python
+    region: oregon
+    plan: free   # 最初はfree。永続化したい場合はStarter以上に変更してDiskを追加
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true
+    autoDeploy: true
+    envVars:
+      - key: DATA_DIR
+        value: /data
+    # 永続ディスク（Renderダッシュボードで追加推奨）
+    # 1. Renderダッシュボード → アプリ → Disks → 「Add Disk」
+    # 2. Mount Path を /data に設定（1GB〜で十分）
+    disk:
+      name: expiry-data
+      mountPath: /data
+      sizeGB: 1

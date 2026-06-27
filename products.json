@@ -1,0 +1,56 @@
+[
+  {
+    "id": 1,
+    "name": "ガリガリ君 コーラ",
+    "jan_code": "4901360312345",
+    "arrival_date": "2026-06-21",
+    "expiry_date": "2026-06-28",
+    "stock": 24,
+    "location": "冷凍"
+  },
+  {
+    "id": 2,
+    "name": "ハーゲンダッツ バニラ",
+    "jan_code": "4902777001234",
+    "arrival_date": "2026-06-16",
+    "expiry_date": "2026-06-25",
+    "stock": 8,
+    "location": "冷凍"
+  },
+  {
+    "id": 3,
+    "name": "アイスの実 マンゴー",
+    "jan_code": "4901234567890",
+    "arrival_date": "2026-06-23",
+    "expiry_date": "2026-07-08",
+    "stock": 36,
+    "location": "冷凍"
+  },
+  {
+    "id": 4,
+    "name": "雪見だいふく",
+    "jan_code": "4901004005678",
+    "arrival_date": "2026-06-06",
+    "expiry_date": "2026-07-01",
+    "stock": 15,
+    "location": "冷凍"
+  },
+  {
+    "id": 5,
+    "name": "明治 エッセル スーパーカップ チョコ",
+    "jan_code": "4902777012345",
+    "arrival_date": "2026-06-25",
+    "expiry_date": "2026-07-26",
+    "stock": 42,
+    "location": "冷凍"
+  },
+  {
+    "id": 6,
+    "name": "ロッテ クールミントガム",
+    "jan_code": "",
+    "arrival_date": "2026-06-11",
+    "expiry_date": "2026-12-23",
+    "stock": 120,
+    "location": "常温"
+  }
+]
