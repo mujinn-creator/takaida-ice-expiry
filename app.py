@@ -5,6 +5,8 @@
 スマホ対応 + 簡易パスワード認証 + 永続JSON保存
 """
 
+import csv
+import io
 import json
 import os
 from datetime import date, datetime, timedelta
@@ -34,6 +36,13 @@ GENRE_ICONS = {
     "その他": "📦",
 }
 
+CSV_HEADERS = ("商品名", "賞味期限", "ジャンル")
+CSV_FIELD_ALIASES = {
+    "name": ("商品名", "name", "名前"),
+    "expiry_date": ("賞味期限", "expiry_date", "期限", "expiry"),
+    "genre": ("ジャンル", "genre", "カテゴリ", "category"),
+}
+
 
 def resolve_data_dir() -> str:
     """Render の永続ディスク (/data) が使えなければローカル data にフォールバック。"""
@@ -61,6 +70,7 @@ def init_session_state() -> None:
         "authenticated": False,
         "products": None,
         "show_add_form": False,
+        "show_csv_import": False,
         "editing_id": None,
         "delete_id": None,
     }
@@ -143,6 +153,102 @@ def migrate_products_if_needed(products: list) -> list[dict]:
     if needs_save:
         save_data(migrated)
     return migrated
+
+
+def build_csv_template() -> bytes:
+    """Excel でも文字化けしにくい UTF-8 BOM 付きテンプレート。"""
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(CSV_HEADERS)
+    writer.writerow(["ガリガリ君 コーラ", "2026/07/15", "冷凍"])
+    writer.writerow(["カップラーメン", "2026/08/01", "ラーメン"])
+    writer.writerow(["緑茶 500ml", "2026/09/30", "飲み物"])
+    return buffer.getvalue().encode("utf-8-sig")
+
+
+def normalize_csv_row(row: dict) -> dict[str, str]:
+    normalized: dict[str, str] = {}
+    for key, aliases in CSV_FIELD_ALIASES.items():
+        for alias in aliases:
+            if alias in row and row[alias] is not None:
+                normalized[key] = str(row[alias]).strip()
+                break
+        else:
+            normalized[key] = ""
+    return normalized
+
+
+def parse_csv_products(file_bytes: bytes) -> tuple[list[dict], list[str]]:
+    text = file_bytes.decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames:
+        return [], ["CSVのヘッダー行が見つかりません。"]
+
+    fieldnames = [name.strip() for name in reader.fieldnames if name]
+    has_name = any(alias in fieldnames for alias in CSV_FIELD_ALIASES["name"])
+    has_expiry = any(alias in fieldnames for alias in CSV_FIELD_ALIASES["expiry_date"])
+    if not has_name or not has_expiry:
+        return [], [
+            "必須列が不足しています。テンプレートの「商品名」「賞味期限」「ジャンル」を使用してください。"
+        ]
+
+    products: list[dict] = []
+    errors: list[str] = []
+
+    for line_no, raw_row in enumerate(reader, start=2):
+        row = normalize_csv_row(raw_row)
+        if not any(row.values()):
+            continue
+
+        name = row["name"]
+        expiry = parse_date_input(row["expiry_date"])
+        genre = normalize_genre(row["genre"])
+
+        if not name:
+            errors.append(f"{line_no}行目: 商品名が空です。")
+            continue
+        if not expiry:
+            errors.append(f"{line_no}行目: 賞味期限の形式が正しくありません（例: 2026/07/15）。")
+            continue
+        if row["genre"] and row["genre"] not in GENRES:
+            errors.append(
+                f"{line_no}行目: ジャンル「{row['genre']}」は未対応です（{', '.join(GENRES)}）。"
+            )
+            continue
+
+        products.append({"name": name, "genre": genre, "expiry_date": expiry})
+
+    if not products and not errors:
+        errors.append("取り込めるデータがありません。")
+
+    return products, errors
+
+
+def assign_product_ids(products: list[dict], start_id: int = 1) -> list[dict]:
+    return [
+        {
+            "id": start_id + index,
+            "name": product["name"],
+            "genre": product["genre"],
+            "expiry_date": product["expiry_date"],
+        }
+        for index, product in enumerate(products)
+    ]
+
+
+def import_csv_products(
+    imported_rows: list[dict],
+    mode: str,
+) -> tuple[list[dict], int]:
+    if mode == "上書き":
+        merged = assign_product_ids(imported_rows, start_id=1)
+    else:
+        existing = list(st.session_state.products)
+        merged = existing + assign_product_ids(imported_rows, start_id=get_next_id(existing))
+
+    save_data(merged)
+    st.session_state.products = merged
+    return merged, len(imported_rows)
 
 
 def get_next_id(products: list[dict]) -> int:
@@ -344,6 +450,61 @@ def render_edit_form(target: dict) -> None:
         st.rerun()
 
 
+def render_csv_import_section() -> None:
+    with st.expander("📥 CSVインポート", expanded=st.session_state.show_csv_import):
+        st.caption("商品名・賞味期限・ジャンルをCSVで一括登録できます。")
+
+        st.download_button(
+            label="📄 テンプレートをダウンロード",
+            data=build_csv_template(),
+            file_name="賞味期限管理_テンプレート.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+
+        st.markdown(
+            f"**列:** {', '.join(CSV_HEADERS)}  \n"
+            f"**ジャンル:** {', '.join(GENRES)}  \n"
+            "**賞味期限:** `2026/07/15` 形式"
+        )
+
+        import_mode = st.radio(
+            "取り込み方法",
+            ["マージ（既存データに追加）", "上書き（既存データを置き換え）"],
+            horizontal=False,
+        )
+        if import_mode.startswith("上書き"):
+            st.warning("上書きを選ぶと、現在の商品データはすべて削除され、CSVの内容に置き換わります。")
+
+        uploaded_file = st.file_uploader(
+            "CSVファイルを選択",
+            type=["csv"],
+            label_visibility="collapsed",
+        )
+
+        if st.button("インポート実行", type="primary", use_container_width=True, key="csv_import_run"):
+            if uploaded_file is None:
+                st.error("CSVファイルを選択してください。")
+                return
+
+            imported_rows, errors = parse_csv_products(uploaded_file.getvalue())
+            if errors:
+                for message in errors[:10]:
+                    st.error(message)
+                if len(errors) > 10:
+                    st.error(f"他に {len(errors) - 10} 件のエラーがあります。")
+                return
+
+            mode = "上書き" if import_mode.startswith("上書き") else "マージ"
+            _, imported_count = import_csv_products(imported_rows, mode)
+            st.session_state.show_csv_import = False
+            st.session_state.show_add_form = False
+            st.session_state.editing_id = None
+            st.session_state.delete_id = None
+            st.success(f"{imported_count} 件を{'上書き' if mode == '上書き' else '追加'}しました。")
+            st.rerun()
+
+
 # ====================== メインアプリ ======================
 def filter_products(
     products: list[dict],
@@ -423,6 +584,7 @@ def render_product_card(product: dict) -> None:
     if col_edit.button("編集", key=f"edit_{product_id}", use_container_width=True):
         st.session_state.editing_id = product_id
         st.session_state.show_add_form = False
+        st.session_state.show_csv_import = False
         st.session_state.delete_id = None
         st.rerun()
 
@@ -430,6 +592,7 @@ def render_product_card(product: dict) -> None:
         st.session_state.delete_id = product_id
         st.session_state.editing_id = None
         st.session_state.show_add_form = False
+        st.session_state.show_csv_import = False
         st.rerun()
 
 
@@ -476,14 +639,25 @@ def main_app() -> None:
         label_visibility="collapsed",
     )
 
-    if st.button("＋ 新しい商品を追加", type="primary", use_container_width=True):
+    action_col_add, action_col_csv = st.columns(2)
+    if action_col_add.button("＋ 商品を追加", type="primary", use_container_width=True):
         st.session_state.show_add_form = True
+        st.session_state.show_csv_import = False
+        st.session_state.editing_id = None
+        st.session_state.delete_id = None
+        st.rerun()
+
+    if action_col_csv.button("📥 CSV", use_container_width=True):
+        st.session_state.show_csv_import = not st.session_state.show_csv_import
+        st.session_state.show_add_form = False
         st.session_state.editing_id = None
         st.session_state.delete_id = None
         st.rerun()
 
     if st.session_state.show_add_form:
         render_add_form()
+
+    render_csv_import_section()
 
     editing_id = st.session_state.editing_id
     if editing_id is not None:
