@@ -2,26 +2,31 @@
   {
     "id": 1,
     "name": "ガリガリ君 コーラ",
+    "genre": "その他",
     "expiry_date": "2026-06-28"
   },
   {
     "id": 2,
     "name": "ハーゲンダッツ バニラ",
+    "genre": "その他",
     "expiry_date": "2026-06-25"
   },
   {
     "id": 3,
     "name": "アイスの実 マンゴー",
+    "genre": "その他",
     "expiry_date": "2026-07-08"
   },
   {
     "id": 4,
     "name": "Test Product",
+    "genre": "その他",
     "expiry_date": "2026-07-15"
   },
   {
     "id": 5,
     "name": "テスト商品",
+    "genre": "その他",
     "expiry_date": "2026-07-04"
   }
 ]

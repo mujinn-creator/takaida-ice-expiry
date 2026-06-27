@@ -24,6 +24,16 @@ DATE_FORMAT = "%Y-%m-%d"
 DISPLAY_FORMAT = "%Y/%m/%d"
 DEFAULT_PASSWORD = "takaida2026"
 
+GENRES = ["お菓子", "冷凍", "ラーメン", "飲み物", "その他"]
+DEFAULT_GENRE = "その他"
+GENRE_ICONS = {
+    "お菓子": "🍬",
+    "冷凍": "🧊",
+    "ラーメン": "🍜",
+    "飲み物": "🥤",
+    "その他": "📦",
+}
+
 
 def resolve_data_dir() -> str:
     """Render の永続ディスク (/data) が使えなければローカル data にフォールバック。"""
@@ -63,11 +73,11 @@ def init_session_state() -> None:
 def get_sample_data() -> list[dict]:
     today = date.today()
     return [
-        {"id": 1, "name": "ガリガリ君 コーラ", "expiry_date": (today + timedelta(days=2)).strftime(DATE_FORMAT)},
-        {"id": 2, "name": "ハーゲンダッツ バニラ", "expiry_date": (today - timedelta(days=1)).strftime(DATE_FORMAT)},
-        {"id": 3, "name": "アイスの実 マンゴー", "expiry_date": (today + timedelta(days=12)).strftime(DATE_FORMAT)},
-        {"id": 4, "name": "雪見だいふく", "expiry_date": (today + timedelta(days=5)).strftime(DATE_FORMAT)},
-        {"id": 5, "name": "明治 エッセル スーパーカップ", "expiry_date": (today + timedelta(days=30)).strftime(DATE_FORMAT)},
+        {"id": 1, "name": "ガリガリ君 コーラ", "genre": "冷凍", "expiry_date": (today + timedelta(days=2)).strftime(DATE_FORMAT)},
+        {"id": 2, "name": "ハーゲンダッツ バニラ", "genre": "冷凍", "expiry_date": (today - timedelta(days=1)).strftime(DATE_FORMAT)},
+        {"id": 3, "name": "アイスの実 マンゴー", "genre": "冷凍", "expiry_date": (today + timedelta(days=12)).strftime(DATE_FORMAT)},
+        {"id": 4, "name": "雪見だいふく", "genre": "冷凍", "expiry_date": (today + timedelta(days=5)).strftime(DATE_FORMAT)},
+        {"id": 5, "name": "明治 エッセル スーパーカップ", "genre": "冷凍", "expiry_date": (today + timedelta(days=30)).strftime(DATE_FORMAT)},
     ]
 
 
@@ -77,7 +87,7 @@ def load_data() -> list[dict]:
             with open(DATA_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
             if isinstance(data, list):
-                return normalize_products(data)
+                return migrate_products_if_needed(data)
         except (json.JSONDecodeError, OSError):
             pass
 
@@ -90,6 +100,11 @@ def save_data(products: list[dict]) -> None:
     Path(DATA_DIR).mkdir(parents=True, exist_ok=True)
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(products, f, ensure_ascii=False, indent=2)
+
+
+def normalize_genre(value) -> str:
+    genre = str(value or DEFAULT_GENRE).strip()
+    return genre if genre in GENRES else DEFAULT_GENRE
 
 
 def normalize_products(products: list) -> list[dict]:
@@ -105,8 +120,29 @@ def normalize_products(products: list) -> list[dict]:
             product_id = int(item.get("id", index))
         except (TypeError, ValueError):
             product_id = index
-        normalized.append({"id": product_id, "name": name, "expiry_date": expiry})
+        normalized.append(
+            {
+                "id": product_id,
+                "name": name,
+                "genre": normalize_genre(item.get("genre")),
+                "expiry_date": expiry,
+            }
+        )
     return normalized
+
+
+def migrate_products_if_needed(products: list) -> list[dict]:
+    """既存データに genre がなければ補完して保存。"""
+    migrated = normalize_products(products)
+    needs_save = any(
+        isinstance(item, dict) and (
+            "genre" not in item or str(item.get("genre", "")).strip() not in GENRES
+        )
+        for item in products
+    )
+    if needs_save:
+        save_data(migrated)
+    return migrated
 
 
 def get_next_id(products: list[dict]) -> int:
@@ -203,8 +239,9 @@ def login_screen() -> None:
 
 
 # ====================== フォーム処理 ======================
-def add_product(name: str, expiry_value) -> str | None:
+def add_product(name: str, genre: str, expiry_value) -> str | None:
     clean_name = name.strip()
+    clean_genre = normalize_genre(genre)
     expiry = parse_date_input(expiry_value)
     if not clean_name:
         return "商品名を入力してください"
@@ -216,6 +253,7 @@ def add_product(name: str, expiry_value) -> str | None:
         {
             "id": get_next_id(products),
             "name": clean_name,
+            "genre": clean_genre,
             "expiry_date": expiry,
         }
     )
@@ -224,8 +262,9 @@ def add_product(name: str, expiry_value) -> str | None:
     return None
 
 
-def update_product(product_id: int, name: str, expiry_value) -> str | None:
+def update_product(product_id: int, name: str, genre: str, expiry_value) -> str | None:
     clean_name = name.strip()
+    clean_genre = normalize_genre(genre)
     expiry = parse_date_input(expiry_value)
     if not clean_name:
         return "商品名を入力してください"
@@ -236,6 +275,7 @@ def update_product(product_id: int, name: str, expiry_value) -> str | None:
     for product in products:
         if product["id"] == product_id:
             product["name"] = clean_name
+            product["genre"] = clean_genre
             product["expiry_date"] = expiry
             break
     else:
@@ -257,6 +297,7 @@ def render_add_form() -> None:
     with st.form("add_form", clear_on_submit=False):
         st.subheader("新しい商品を追加")
         name = st.text_input("商品名", placeholder="例: ガリガリ君 コーラ")
+        genre = st.selectbox("ジャンル", GENRES, index=GENRES.index("冷凍"))
         expiry = st.date_input("賞味期限", value=date.today() + timedelta(days=7))
 
         col_save, col_cancel = st.columns(2)
@@ -264,7 +305,7 @@ def render_add_form() -> None:
         cancel_clicked = col_cancel.form_submit_button("キャンセル", use_container_width=True)
 
     if save_clicked:
-        error = add_product(name, expiry)
+        error = add_product(name, genre, expiry)
         if error:
             st.error(error)
         else:
@@ -278,10 +319,12 @@ def render_add_form() -> None:
 
 def render_edit_form(target: dict) -> None:
     current_expiry = to_date(target["expiry_date"]) or date.today()
+    current_genre = normalize_genre(target.get("genre"))
 
     with st.form(f"edit_form_{target['id']}", clear_on_submit=False):
         st.subheader(f"編集: {target['name']}")
         name = st.text_input("商品名", value=target["name"])
+        genre = st.selectbox("ジャンル", GENRES, index=GENRES.index(current_genre))
         expiry = st.date_input("賞味期限", value=current_expiry)
 
         col_save, col_cancel = st.columns(2)
@@ -289,7 +332,7 @@ def render_edit_form(target: dict) -> None:
         cancel_clicked = col_cancel.form_submit_button("キャンセル", use_container_width=True)
 
     if save_clicked:
-        error = update_product(target["id"], name, expiry)
+        error = update_product(target["id"], name, genre, expiry)
         if error:
             st.error(error)
         else:
@@ -302,7 +345,12 @@ def render_edit_form(target: dict) -> None:
 
 
 # ====================== メインアプリ ======================
-def filter_products(products: list[dict], search_text: str, filter_option: str) -> list[dict]:
+def filter_products(
+    products: list[dict],
+    search_text: str,
+    status_filter: str,
+    genre_filter: str,
+) -> list[dict]:
     filtered = []
     query = search_text.strip().lower()
 
@@ -311,12 +359,15 @@ def filter_products(products: list[dict], search_text: str, filter_option: str) 
         if query and query not in name.lower():
             continue
 
+        if genre_filter != "すべて" and normalize_genre(product.get("genre")) != genre_filter:
+            continue
+
         _, _, _, tag = get_status(product.get("expiry_date", ""))
-        if filter_option == "期限切れ" and tag != "expired":
+        if status_filter == "期限切れ" and tag != "expired":
             continue
-        if filter_option == "7日以内" and tag != "near":
+        if status_filter == "7日以内" and tag != "near":
             continue
-        if filter_option == "正常" and tag != "ok":
+        if status_filter == "正常" and tag != "ok":
             continue
         filtered.append(product)
 
@@ -324,9 +375,20 @@ def filter_products(products: list[dict], search_text: str, filter_option: str) 
     return filtered
 
 
+def genre_badge(genre: str) -> str:
+    label = normalize_genre(genre)
+    icon = GENRE_ICONS.get(label, "📦")
+    return (
+        f'<span style="display:inline-block; background:#f0f0f0; color:#333; '
+        f'padding:2px 10px; border-radius:999px; font-size:0.82rem; margin-bottom:6px;">'
+        f"{icon} {label}</span>"
+    )
+
+
 def render_product_card(product: dict) -> None:
     status_text, emoji, _, tag = get_status(product.get("expiry_date", ""))
     expiry_disp = format_display(product.get("expiry_date", ""))
+    badge = genre_badge(product.get("genre"))
 
     if tag == "expired":
         border_color, bg = "#ff4d4f", "#fff1f0"
@@ -344,6 +406,7 @@ def render_product_card(product: dict) -> None:
             margin-bottom: 10px;
             border-radius: 8px;
         ">
+            {badge}
             <div style="font-size:1.1rem; font-weight:600;">{product['name']}</div>
             <div style="margin-top:4px; font-size:0.95rem;">
                 賞味期限: <b>{expiry_disp}</b><br>
@@ -372,7 +435,7 @@ def render_product_card(product: dict) -> None:
 
 def main_app() -> None:
     st.title("🍦 高井田店 賞味期限管理")
-    st.caption("商品名・賞味期限のみのシンプル管理（スマホ最適化）")
+    st.caption("商品名・ジャンル・賞味期限のシンプル管理（スマホ最適化）")
 
     if st.session_state.products is None:
         st.session_state.products = load_data()
@@ -395,15 +458,21 @@ def main_app() -> None:
 
     st.divider()
 
-    search_col, filter_col = st.columns([3, 2])
-    search_text = search_col.text_input(
+    search_text = st.text_input(
         "🔍 商品名で検索",
         placeholder="例: ガリガリ君",
         label_visibility="collapsed",
     )
-    filter_option = filter_col.selectbox(
-        "状態フィルタ",
+
+    status_col, genre_col = st.columns(2)
+    status_filter = status_col.selectbox(
+        "状態",
         ["すべて", "期限切れ", "7日以内", "正常"],
+        label_visibility="collapsed",
+    )
+    genre_filter = genre_col.selectbox(
+        "ジャンル",
+        ["すべて", *GENRES],
         label_visibility="collapsed",
     )
 
@@ -442,7 +511,7 @@ def main_app() -> None:
 
     st.divider()
 
-    filtered = filter_products(products, search_text, filter_option)
+    filtered = filter_products(products, search_text, status_filter, genre_filter)
     if not filtered:
         st.info("該当する商品がありません")
     else:
