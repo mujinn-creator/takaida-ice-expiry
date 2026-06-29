@@ -37,6 +37,7 @@ GENRE_ICONS = {
 }
 
 CSV_HEADERS = ("商品名", "賞味期限", "ジャンル")
+CSV_ENCODINGS = ("utf-8-sig", "utf-8", "cp932")
 CSV_FIELD_ALIASES = {
     "name": ("商品名", "name", "名前"),
     "expiry_date": ("賞味期限", "expiry_date", "期限", "expiry"),
@@ -166,6 +167,23 @@ def build_csv_template() -> bytes:
     return buffer.getvalue().encode("utf-8-sig")
 
 
+def decode_csv_bytes(file_bytes: bytes) -> tuple[str | None, str | None]:
+    """UTF-8（BOM付き可）と Shift-JIS（CP932）の CSV バイト列をデコードする。"""
+    if not file_bytes:
+        return None, "CSVファイルが空です。"
+
+    for encoding in CSV_ENCODINGS:
+        try:
+            return file_bytes.decode(encoding), None
+        except UnicodeDecodeError:
+            continue
+
+    return None, (
+        "CSVの文字コードを判別できませんでした。"
+        "UTF-8（BOM付き可）または Shift-JIS（CP932）のファイルを使用してください。"
+    )
+
+
 def normalize_csv_row(row: dict) -> dict[str, str]:
     normalized: dict[str, str] = {}
     for key, aliases in CSV_FIELD_ALIASES.items():
@@ -179,7 +197,10 @@ def normalize_csv_row(row: dict) -> dict[str, str]:
 
 
 def parse_csv_products(file_bytes: bytes) -> tuple[list[dict], list[str]]:
-    text = file_bytes.decode("utf-8-sig")
+    text, decode_error = decode_csv_bytes(file_bytes)
+    if decode_error:
+        return [], [decode_error]
+
     reader = csv.DictReader(io.StringIO(text))
     if not reader.fieldnames:
         return [], ["CSVのヘッダー行が見つかりません。"]
